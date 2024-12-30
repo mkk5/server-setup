@@ -1,0 +1,7 @@
+profile: moderate
+warn_list:
+  - name[template]
+  - name[imperative]
+  - name[casing]
+  - spell-var-name
+  - yaml

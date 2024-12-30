@@ -1,0 +1,91 @@
+# Minimal ubuntu server setup
+# TODO: firewall; configure git, etc; run only for debian-based systems; delete default user if present?; reboot?;
+- name: Server setup
+  hosts: all
+  become: true
+  vars_prompt:
+    - name: new_username
+      prompt: New username (empty to skip)
+      private: false
+
+  handlers:
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: ssh
+        state: reloaded
+
+  tasks:
+    - name: Update and upgrade packages
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 86400
+        upgrade: true
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - git
+          - htop
+          - neovim
+          - curl
+          - wget
+          - rsync
+          - tmux
+          - make
+          - less
+          - apache2-utils
+          - build-essential
+          - ca-certificates
+          - gnupg
+        state: latest
+
+    - name: Install docker
+      ansible.builtin.import_tasks: docker.ansible.yml
+
+    - name: User creation
+      when: new_username != ""
+      block:
+        - name: Create a new regular user with sudo and docker groups
+          ansible.builtin.user:
+            name: "{{ new_username }}"
+            state: present
+            shell: /bin/bash
+            groups: sudo, docker
+            append: true
+            create_home: true
+        - name: Set authorized key for new user
+          ansible.posix.authorized_key:
+            user: "{{ new_username }}"
+            state: present
+            key: "{{ lookup('file', '{{ ansible_ssh_private_key_file }}' + '.pub') }}"
+
+    - name: Setup passwordless sudo
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers
+        state: present
+        regexp: '^%sudo'
+        line: '%sudo ALL=(ALL:ALL) NOPASSWD: ALL'
+        validate: '/usr/sbin/visudo -cf %s'
+
+    - name: Disable authentication for root in sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        state: present
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin no'
+      notify: Reload sshd
+
+    - name: Disable password authentication in sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        state: present
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+      notify: Reload sshd
+
+    - name: Disable root login (/sbin/nologin)
+      ansible.builtin.lineinfile:
+        path: /etc/passwd
+        state: present
+        regexp: '^root:'
+        line: 'root:x:0:0:root:/root:/sbin/nologin'
